@@ -374,6 +374,7 @@ public class Functions {
     /**
      * Внутренний класс для численной производной функции.
      */
+    
     private static class Derivative implements Function {
         private final Function f;
         private final double epsilon;
