@@ -203,34 +203,72 @@ public class Main {
             System.out.println("2. Integrator (с семафорами)");
             System.out.println("\nОжидание завершения...");
 
+            int lastGenerated = -1;
+            int lastProcessed = -1;
+            int checkCounter = 0;
+
             // Мониторим прогресс
             while ((generator.isAlive() || integrator.isAlive()) &&
                     (System.currentTimeMillis() - startTime) < timeout) {
 
+                // Используем семафор для чтения
+                lock.beginRead();
                 int generated = task.getGeneratedCount();
                 int processed = task.getProcessedCount();
+                lock.endRead();
 
+                // Проверяем согласованность каждые 5 обновлений
+                if (checkCounter % 5 == 0) {
+                    System.out.printf("\nПроверка %d: Сгенерировано %d, Обработано %d",
+                            checkCounter/5 + 1, generated, processed);
+
+                    // Проверяем, что processed не превышает generated
+                    if (processed > generated) {
+                        System.out.println("\n⚠ ВНИМАНИЕ: Обработано больше, чем сгенерировано!");
+                        System.out.println("   Это указывает на ошибку в логике счетчиков");
+                    }
+
+                    // Проверяем задержку между генерацией и обработкой
+                    if (generated > processed) {
+                        int pending = generated - processed;
+                        System.out.printf("   Ожидают обработки: %d задач\n", pending);
+                    }
+                }
+
+                // Выводим общий прогресс
                 System.out.printf("\rПрогресс: Сгенерировано %d/%d, Обработано %d/%d",
                         generated, taskCount, processed, taskCount);
 
+                lastGenerated = generated;
+                lastProcessed = processed;
+                checkCounter++;
+
                 if (generated >= taskCount && processed >= taskCount) {
-                    System.out.println("\n✓ Все задачи выполнены!");
+                    System.out.println("\n\n✓ Все задачи выполнены!");
                     break;
                 }
 
-                Thread.sleep(500);
+                Thread.sleep(300); // Проверяем чаще
             }
 
             // Проверяем таймаут
             if (System.currentTimeMillis() - startTime >= timeout) {
-                System.out.println("\n⚠ Достигнут таймаут 60 секунд!");
+                System.out.println("\n\n⚠ Достигнут таймаут 60 секунд!");
+            }
+
+            // Даем потокам 2 секунды на завершение
+            if (generator.isAlive() || integrator.isAlive()) {
+                System.out.println("\nДаю потокам 2 секунды на завершение...");
+                Thread.sleep(2000);
             }
 
             // Прерываем потоки, если они еще работают
             if (generator.isAlive()) {
+                System.out.println("Прерываю Generator...");
                 generator.interrupt();
             }
             if (integrator.isAlive()) {
+                System.out.println("Прерываю Integrator...");
                 integrator.interrupt();
             }
 
@@ -243,16 +281,99 @@ public class Main {
             Thread.currentThread().interrupt();
         }
 
-        // Вывод результатов
-        System.out.println("\n=== РЕЗУЛЬТАТЫ COMPLICATED THREADED ===");
-        System.out.println("Запланировано: " + taskCount);
-        System.out.println("Сгенерировано: " + task.getGeneratedCount());
-        System.out.println("Обработано: " + task.getProcessedCount());
+        // ФИНАЛЬНАЯ ПРОВЕРКА
+        System.out.println("\n=== ФИНАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ ===");
 
-        // Расчет и вывод шага дискретизации
-        if (task.getGeneratedCount() > 0 && task.getProcessedCount() > 0) {
-            calculateAndDisplayDiscretizationStep(task);
+        int finalGenerated = task.getGeneratedCount();
+        int finalProcessed = task.getProcessedCount();
+
+        System.out.println("Всего должно быть заданий: " + taskCount);
+        System.out.println("Фактически сгенерировано: " + finalGenerated);
+        System.out.println("Фактически обработано: " + finalProcessed);
+
+        // ПОДРОБНЫЙ АНАЛИЗ
+        System.out.println("\n--- АНАЛИЗ РЕЗУЛЬТАТОВ ---");
+
+        // Проверка 1: Все ли задачи сгенерированы?
+        if (finalGenerated == taskCount) {
+            System.out.println("✓ 1. Все 100 задач успешно сгенерированы");
+        } else {
+            System.out.println("✗ 1. Не все задачи сгенерированы:");
+            System.out.println("   Ожидалось: " + taskCount);
+            System.out.println("   Получено: " + finalGenerated);
+            System.out.println("   Не хватает: " + (taskCount - finalGenerated));
         }
+
+        // Проверка 2: Все ли задачи обработаны?
+        if (finalProcessed == taskCount) {
+            System.out.println("✓ 2. Все 100 задач успешно обработаны");
+        } else {
+            System.out.println("✗ 2. Не все задачи обработаны:");
+            System.out.println("   Ожидалось: " + taskCount);
+            System.out.println("   Получено: " + finalProcessed);
+            System.out.println("   Не хватает: " + (taskCount - finalProcessed));
+        }
+
+        // Проверка 3: Совпадают ли счетчики?
+        if (finalGenerated == finalProcessed) {
+            System.out.println("✓ 3. Счетчики сгенерированных и обработанных задач совпадают");
+        } else {
+            System.out.println("✗ 3. Счетчики не совпадают!");
+            if (finalGenerated > finalProcessed) {
+                System.out.println("   Сгенерировано больше, чем обработано");
+                System.out.println("   Разница: " + (finalGenerated - finalProcessed) + " задач");
+                System.out.println("   Вероятная причина: Integrator не успел обработать все задачи");
+            } else {
+                System.out.println("   Обработано больше, чем сгенерировано - ЭТО ОШИБКА!");
+                System.out.println("   Разница: " + (finalProcessed - finalGenerated) + " задач");
+                System.out.println("   Вероятная причина: ошибка в логике счетчиков");
+            }
+        }
+
+        // Проверка 4: Достигнуты ли цели?
+        if (finalGenerated == taskCount && finalProcessed == taskCount) {
+            System.out.println("\n✅ УСПЕХ: Все 100 задач успешно сгенерированы и проинтегрированы!");
+        } else {
+            System.out.println("\n⚠ ПРЕДУПРЕЖДЕНИЕ: Не все задачи были корректно обработаны");
+
+            if (finalGenerated < taskCount) {
+                System.out.println("\nВозможные причины проблем с генерацией:");
+                System.out.println("1. Generator был прерван до завершения");
+                System.out.println("2. Ошибка в генерации функций");
+                System.out.println("3. Недостаточно времени (таймаут)");
+            }
+
+            if (finalProcessed < finalGenerated) {
+                System.out.println("\nВозможные причины проблем с интеграцией:");
+                System.out.println("1. Integrator был прерван до завершения");
+                System.out.println("2. Ошибки вычисления интегралов");
+                System.out.println("3. Проблемы с синхронизацией");
+                System.out.println("4. Integrator работает медленнее, чем Generator");
+            }
+        }
+
+        // Расчет шага дискретизации
+        if (finalGenerated > 0 && finalProcessed > 0) {
+            calculateAndDisplayDiscretizationStep(task);
+
+            // Дополнительная информация для анализа
+            System.out.println("\n--- СТАТИСТИКА ДЛЯ ОПТИМИЗАЦИИ ---");
+            double efficiency = (double) finalProcessed / finalGenerated;
+
+            if (efficiency < 0.9) {
+                System.out.println("Рекомендации по улучшению:");
+                System.out.println("1. Увеличьте время работы Integrator (уменьшите sleep)");
+                System.out.println("2. Проверьте, нет ли блокировок в Synchronized");
+                System.out.println("3. Рассмотрите увеличение приоритета Integrator");
+            }
+        }
+
+        // Проверка потоков
+        System.out.println("\n--- СОСТОЯНИЕ ПОТОКОВ ---");
+        System.out.println("Generator alive: " + generator.isAlive());
+        System.out.println("Integrator alive: " + integrator.isAlive());
+        System.out.println("Generator interrupted: " + generator.isInterrupted());
+        System.out.println("Integrator interrupted: " + integrator.isInterrupted());
     }
 
     /**

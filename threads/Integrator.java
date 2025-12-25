@@ -5,6 +5,7 @@ import functions.Functions;
 public class Integrator extends Thread {
     private final Task task;
     private final Synchronized lock;
+    private int localProcessedCount = 0; // Локальный счетчик для отладки
 
     public Integrator(Task task, Synchronized lock) {
         this.task = task;
@@ -29,12 +30,17 @@ public class Integrator extends Thread {
                 lock.beginRead();
                 try {
                     // Проверяем, есть ли новые задания для обработки
-                    if (task.getGeneratedCount() > processed) {
+                    int currentGenerated = task.getGeneratedCount();
+                    if (currentGenerated > processed) {
                         hasNewTask = true;
                         // Читаем данные из задания
                         leftBound = task.getLeftBound();
                         rightBound = task.getRightBound();
                         step = task.getStep();
+
+                        // Отладочная информация
+                        System.out.println("Integrator: Получена задача " + (processed + 1) +
+                                " из " + currentGenerated + " сгенерированных");
                     }
                 } finally {
                     lock.endRead();
@@ -50,11 +56,19 @@ public class Integrator extends Thread {
                 try {
                     double integral = Functions.integrate(task.getFunction(), leftBound, rightBound, step);
                     processed++;
+                    localProcessedCount++;
 
                     // Увеличиваем счетчик обработанных задач
                     lock.beginWrite();
                     try {
                         task.incrementProcessedCount();
+                        int currentProcessed = task.getProcessedCount();
+
+                        // Проверка согласованности
+                        if (currentProcessed != processed) {
+                            System.out.println("Integrator WARNING: Несоответствие счетчиков!");
+                            System.out.println("   Локальный: " + processed + ", Общий: " + currentProcessed);
+                        }
                     } finally {
                         lock.endWrite();
                     }
@@ -67,6 +81,7 @@ public class Integrator extends Thread {
 
                 } catch (Exception e) {
                     processed++;
+                    localProcessedCount++;
                     lock.beginWrite();
                     try {
                         task.incrementProcessedCount();
@@ -83,14 +98,20 @@ public class Integrator extends Thread {
 
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
                     "]: Все " + taskCount + " заданий обработаны");
+            System.out.println("Integrator: Локально обработано " + localProcessedCount + " задач");
 
         } catch (InterruptedException e) {
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
                     "]: Прерван - " + e.getMessage());
+            System.out.println("Integrator: Успел обработать " + localProcessedCount + " задач до прерывания");
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
                     "]: Неожиданная ошибка - " + e.getMessage());
         }
+    }
+
+    public int getLocalProcessedCount() {
+        return localProcessedCount;
     }
 }
