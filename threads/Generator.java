@@ -20,7 +20,6 @@ public class Generator extends Thread {
             int taskCount = task.getTaskCount();
 
             for (int i = 0; i < taskCount; i++) {
-                // Проверяем, не прерван ли поток
                 if (Thread.currentThread().isInterrupted()) {
                     throw new InterruptedException("Поток прерван во время генерации");
                 }
@@ -29,9 +28,8 @@ public class Generator extends Thread {
                 double base = 1 + random.nextDouble() * 9;
                 if (Math.abs(base - 1.0) < 1e-10) base = 1.1;
 
-                double leftBound = random.nextDouble() * 99.9 + 0.1;
+                double leftBound = random.nextDouble() * 100;
                 double rightBound = 100 + random.nextDouble() * 100;
-
                 double step = random.nextDouble();
                 if (step < 1e-10) step = 0.01;
 
@@ -51,7 +49,7 @@ public class Generator extends Thread {
                             " - Source " + String.format("%.4f %.4f %.6f", leftBound, rightBound, step));
 
                 } finally {
-                    lock.endWrite(); // Всегда освобождаем семафор
+                    lock.endWrite();
                 }
 
                 // Короткая пауза между заданиями
@@ -64,7 +62,7 @@ public class Generator extends Thread {
         } catch (InterruptedException e) {
             System.out.println("Генератор [" + Thread.currentThread().getId() +
                     "]: Прерван - " + e.getMessage());
-            Thread.currentThread().interrupt(); // Восстанавливаем статус прерывания
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
             System.out.println("Генератор [" + Thread.currentThread().getId() +
                     "]: Ошибка - " + e.getMessage());

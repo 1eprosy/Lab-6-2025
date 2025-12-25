@@ -1,6 +1,8 @@
 package threads;
 
 import functions.Function;
+import functions.basic.Log;
+import java.util.Random;
 
 public class Task {
     private Function function;

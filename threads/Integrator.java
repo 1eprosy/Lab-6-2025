@@ -18,29 +18,32 @@ public class Integrator extends Thread {
             int processed = 0;
 
             while (processed < taskCount) {
-                // Проверяем, не прерван ли поток
                 if (Thread.currentThread().isInterrupted()) {
                     throw new InterruptedException("Поток прерван во время интегрирования");
                 }
 
                 double leftBound = 0, rightBound = 0, step = 0;
+                boolean hasNewTask = false;
 
                 // Захватываем семафор для чтения
                 lock.beginRead();
                 try {
                     // Проверяем, есть ли новые задания для обработки
-                    if (task.getGeneratedCount() <= processed) {
-                        // Нет новых заданий, освобождаем семафор и ждем
-                        continue;
+                    if (task.getGeneratedCount() > processed) {
+                        hasNewTask = true;
+                        // Читаем данные из задания
+                        leftBound = task.getLeftBound();
+                        rightBound = task.getRightBound();
+                        step = task.getStep();
                     }
-
-                    // Читаем данные из задания
-                    leftBound = task.getLeftBound();
-                    rightBound = task.getRightBound();
-                    step = task.getStep();
-
                 } finally {
-                    lock.endRead(); // Освобождаем семафор чтения
+                    lock.endRead();
+                }
+
+                if (!hasNewTask) {
+                    // Нет новых заданий - короткая пауза
+                    Thread.sleep(10);
+                    continue;
                 }
 
                 // Вычисляем интеграл вне блокировки
@@ -48,20 +51,34 @@ public class Integrator extends Thread {
                     double integral = Functions.integrate(task.getFunction(), leftBound, rightBound, step);
                     processed++;
 
-                    // Выводим результат (не требуется блокировка для вывода)
+                    // Увеличиваем счетчик обработанных задач
+                    lock.beginWrite();
+                    try {
+                        task.incrementProcessedCount();
+                    } finally {
+                        lock.endWrite();
+                    }
+
+                    // Выводим результат
                     System.out.println("Интегратор [" + Thread.currentThread().getId() +
                             "]: Результат " + processed + "/" + taskCount +
                             " - Result " + String.format("%.4f %.4f %.6f %.10f",
                             leftBound, rightBound, step, integral));
 
                 } catch (Exception e) {
-                    processed++; // Все равно считаем как обработанное
+                    processed++;
+                    lock.beginWrite();
+                    try {
+                        task.incrementProcessedCount();
+                    } finally {
+                        lock.endWrite();
+                    }
                     System.out.println("Интегратор [" + Thread.currentThread().getId() +
                             "]: Ошибка в задании " + processed + " - " + e.getMessage());
                 }
 
                 // Короткая пауза между вычислениями
-                Thread.sleep(50);
+                Thread.sleep(30);
             }
 
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
@@ -70,7 +87,7 @@ public class Integrator extends Thread {
         } catch (InterruptedException e) {
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
                     "]: Прерван - " + e.getMessage());
-            Thread.currentThread().interrupt(); // Восстанавливаем статус прерывания
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
             System.out.println("Интегратор [" + Thread.currentThread().getId() +
                     "]: Неожиданная ошибка - " + e.getMessage());

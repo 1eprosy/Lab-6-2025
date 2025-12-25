@@ -1,10 +1,10 @@
 package threads;
 
+import functions.Function;
 import functions.Functions;
 
 public class SimpleIntegrator implements Runnable {
     private final Task task;
-    private volatile boolean generatorFinished = false;
 
     public SimpleIntegrator(Task task) {
         this.task = task;
@@ -12,64 +12,68 @@ public class SimpleIntegrator implements Runnable {
 
     @Override
     public void run() {
-        try {
-            int taskCount = task.getTaskCount();
+        int taskCount = task.getTaskCount();
+        int processed = 0;
 
-            while (task.getProcessedCount() < taskCount) {
-                double leftBound, rightBound, step;
-
-                synchronized (task) {
-                    // Ждем новое задание или завершение генератора
-                    while (task.getGeneratedCount() <= task.getProcessedCount()) {
-                        // Проверяем, не завершил ли генератор работу
-                        if (task.getGeneratedCount() >= taskCount &&
-                                task.getProcessedCount() >= task.getGeneratedCount()) {
-                            System.out.println("Интегратор: Все задания обработаны");
-                            return;
-                        }
-
-                        try {
-                            task.wait(50); // Уменьшаем время ожидания
-                        } catch (InterruptedException e) {
-                            System.out.println("Интегратор прерван");
-                            return;
-                        }
-                    }
-
-                    // Чтение параметров
-                    leftBound = task.getLeftBound();
-                    rightBound = task.getRightBound();
-                    step = task.getStep();
-                    task.incrementProcessedCount();
-
-                    // Выводим сразу после чтения
-                    System.out.println("Интегратор: Получено задание " + task.getProcessedCount() +
-                            "/" + taskCount + " - " + String.format("%.4f %.4f %.6f", leftBound, rightBound, step));
-
-                    task.notifyAll();
-                }
-
-                try {
-                    // Вычисление вне synchronized блока
-                    double integral = Functions.integrate(task.getFunction(), leftBound, rightBound, step);
-
-                    System.out.println("Интегратор: Result " +
-                            String.format("%.4f %.4f %.6f %.10f", leftBound, rightBound, step, integral));
-
-                } catch (Exception e) {
-                    System.out.println("Интегратор: Ошибка вычисления - " + e.getMessage());
-                }
-
-                Thread.sleep(50); // Уменьшаем задержку
+        while (processed < taskCount) {
+            // Проверяем, не прерван ли поток
+            if (Thread.currentThread().isInterrupted()) {
+                return;
             }
 
-            System.out.println("Интегратор: Все " + taskCount + " заданий обработаны");
+            double leftBound = 0, rightBound = 0, step = 0;
+            Function function = null;
 
-        } catch (InterruptedException e) {
-            System.out.println("Интегратор прерван");
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            System.out.println("Интегратор: Неожиданная ошибка - " + e.getMessage());
+            // Чтение параметров с блокировкой
+            synchronized (task) {
+                // Проверяем, есть ли новые задания для обработки
+                if (task.getGeneratedCount() <= processed) {
+                    // Нет новых заданий - короткая пауза
+                    try {
+                        task.wait(10);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    continue;
+                }
+
+                // Читаем параметры задачи
+                leftBound = task.getLeftBound();
+                rightBound = task.getRightBound();
+                step = task.getStep();
+                function = task.getFunction();
+
+                // Увеличиваем счетчик обработанных задач
+                task.incrementProcessedCount();
+            }
+
+            // Вычисляем интеграл вне блокировки
+            try {
+                if (function != null) {
+                    double integral = Functions.integrate(function, leftBound, rightBound, step);
+                    processed++;
+
+                    // Вывод результата
+                    System.out.println("SimpleIntegrator: Result " +
+                            String.format("%.4f %.4f %.6f %.10f",
+                                    leftBound, rightBound, step, integral));
+                }
+            } catch (Exception e) {
+                processed++;
+                System.out.println("SimpleIntegrator: Ошибка в задании " + processed +
+                        " - " + e.getMessage());
+            }
+
+            // Короткая пауза между вычислениями
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
+
+        System.out.println("SimpleIntegrator: Завершил обработку " + taskCount + " заданий");
     }
 }
